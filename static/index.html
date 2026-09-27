@@ -23,14 +23,18 @@
   input, select, button { font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
                           background: var(--card); color: var(--text); }
   button { background: var(--accent); color: #fff; border: 0; cursor: pointer; }
+  button:disabled { opacity: .45; cursor: default; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 16px; }
+  .toolbar h2 { margin: 0; }
   #msg { font-size: 13px; color: var(--muted); }
-  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
   .kpis { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 16px; }
   .kpi .v { font-size: 32px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .kpi .l { font-size: 12px; color: var(--muted); }
   .wide { grid-column: 1 / -1; }
-  canvas { max-height: 280px; }
+  .chart { position: relative; height: 260px; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
   th { font-size: 12px; color: var(--muted); font-weight: 600; }
@@ -67,21 +71,21 @@
   </div>
 
   <div class="grid">
-    <div class="card wide"><h2>NPS over time</h2><canvas id="c-trend"></canvas></div>
-    <div class="card"><h2>Promoters / passives / detractors</h2><canvas id="c-mix"></canvas></div>
-    <div class="card"><h2>Score distribution</h2><canvas id="c-scores"></canvas></div>
+    <div class="card wide"><h2>NPS over time</h2><div class="chart"><canvas id="c-trend"></canvas></div></div>
+    <div class="card"><h2>Promoters / passives / detractors</h2><div class="chart"><canvas id="c-mix"></canvas></div></div>
+    <div class="card"><h2>Score distribution</h2><div class="chart"><canvas id="c-scores"></canvas></div></div>
   </div>
 
-  <div class="card bar" style="margin-top:16px">
-    <h2 style="margin:0">Review sentiment (Jev)</h2>
+  <div class="card toolbar">
+    <h2>Review sentiment (Jev)</h2>
     <button id="analyze" disabled>Analyze pending reviews</button>
-    <span id="s-status"></span>
+    <span id="s-status" style="color:var(--muted);font-size:13px"></span>
   </div>
 
   <div class="grid" style="margin-top:16px">
-    <div class="card"><h2>Sentiment split</h2><canvas id="c-sent"></canvas></div>
-    <div class="card"><h2>Sentiment by NPS category</h2><canvas id="c-cat"></canvas></div>
-    <div class="card wide"><h2>Average sentiment over time (0 very negative … 4 very positive)</h2><canvas id="c-sent-trend"></canvas></div>
+    <div class="card"><h2>Sentiment split</h2><div class="chart"><canvas id="c-sent"></canvas></div></div>
+    <div class="card"><h2>Sentiment by NPS category</h2><div class="chart"><canvas id="c-cat"></canvas></div></div>
+    <div class="card wide"><h2>Average sentiment over time (0 very negative … 4 very positive)</h2><div class="chart"><canvas id="c-sent-trend"></canvas></div></div>
 
     <div class="card wide">
       <h2>Reviews</h2>
@@ -112,6 +116,10 @@
 const $ = id => document.getElementById(id);
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const charts = {};
+Chart.defaults.maintainAspectRatio = false;
+Chart.defaults.plugins.legend.position = "bottom";
+Chart.defaults.plugins.legend.labels.boxWidth = 12;
+Chart.defaults.plugins.legend.labels.boxHeight = 12;
 
 function draw(id, config) {
   charts[id]?.destroy();
@@ -160,7 +168,7 @@ async function refresh() {
       ["passives", "Passives", "--passive"],
       ["detractors", "Detractors", "--detractor"],
     ].map(([k, label, color]) => ({ label, data: nps.series.map(r => r[k]), backgroundColor: css(color) })) },
-    options: { scales: { x: { stacked: true }, y: { stacked: true } } },
+    options: { scales: { x: { stacked: true, ticks: { maxRotation: 0, autoSkipPadding: 8 } }, y: { stacked: true } } },
   });
 
   draw("c-scores", {
@@ -198,7 +206,7 @@ async function refreshSentiment() {
     type: "bar",
     data: { labels: ["Promoters", "Passives", "Detractors"],
             datasets: LABELS.map(l => ({ label: NAMES[l], data: cats.map(c => count(c, l)), backgroundColor: sColor(l) })) },
-    options: { indexAxis: "y", scales: { x: { stacked: true }, y: { stacked: true } } },
+    options: { indexAxis: "y", scales: { x: { stacked: true }, y: { stacked: true, ticks: { autoSkip: false } } } },
   });
 
   draw("c-sent-trend", {

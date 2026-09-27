@@ -65,7 +65,10 @@ def nps(
 
 
 @app.get("/api/scores")
-def scores(start: date | None = Query(None, alias="from"), end: date | None = Query(None, alias="to")):
+def scores(
+    start: date | None = Query(None, alias="from"),
+    end: date | None = Query(None, alias="to"),
+):
     return db.score_counts(db.connect(), *_range(start, end))
 
 
@@ -76,7 +79,7 @@ async def sentiment_run(background: BackgroundTasks):
     if sentiment.state["running"]:
         raise HTTPException(409, "Sentiment run already in progress")
     pending = db.sentiment_progress(db.connect())["pending"]
-    sentiment.state["running"] = True  # set now so a second click can't race the task start
+    sentiment.state["running"] = True
     background.add_task(sentiment.run_pending)
     return {"queued": pending}
 
@@ -99,13 +102,25 @@ def sentiment_summary(
 def reviews(
     start: date | None = Query(None, alias="from"),
     end: date | None = Query(None, alias="to"),
-    sentiment: Literal["very_negative", "negative", "neutral", "positive", "very_positive", "pending"] | None = None,
+    sentiment: (
+        Literal[
+            "very_negative",
+            "negative",
+            "neutral",
+            "positive",
+            "very_positive",
+            "pending",
+        ]
+        | None
+    ) = None,
     max_conf: float | None = Query(None, ge=0, le=1),
     mismatch: bool = False,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    return db.reviews(db.connect(), *_range(start, end), sentiment, max_conf, mismatch, limit, offset)
+    return db.reviews(
+        db.connect(), *_range(start, end), sentiment, max_conf, mismatch, limit, offset
+    )
 
 
 @app.get("/")

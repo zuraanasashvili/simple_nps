@@ -1,4 +1,5 @@
 """Review sentiment via Jev (TypeSafe). CLI: python sentiment.py ["review text" ...]"""
+
 import asyncio
 import sys
 
@@ -17,14 +18,14 @@ SENTIMENT = Score(
     ],
 )
 LABELS = ["very_negative", "negative", "neutral", "positive", "very_positive"]
-CONCURRENCY = 5  # ponytail: fixed; raise if your TypeSafe plan's rate limit allows
+CONCURRENCY = 5
 
-# Single-process app state for the background job.
+
 state = {"running": False, "failed": 0, "last_error": None}
 
 
 def label(score):
-    return LABELS[min(int(score + 0.5), len(LABELS) - 1)]  # round half up, not banker's
+    return LABELS[min(int(score + 0.5), len(LABELS) - 1)]
 
 
 async def analyze(client, text):
@@ -77,7 +78,7 @@ if __name__ == "__main__":
 
     load_dotenv()
     texts = sys.argv[1:]
-    if not texts:  # default: every distinct review in sample.csv
+    if not texts:
         with open("sample.csv") as f:
             texts = sorted({r["review"] for r in csv.DictReader(f) if r["review"]})
     asyncio.run(_cli(texts))
