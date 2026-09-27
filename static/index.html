@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simple NPS</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root { --bg: #f6f7f9; --card: #fff; --text: #1d2330; --muted: #6b7280; --border: #e3e6eb;
+          --promoter: #1a9e6f; --passive: #b8bec8; --detractor: #d9534f; --accent: #3b6fd8;
+          --s0: #b2322e; --s1: #e8837d; --s2: #b8bec8; --s3: #6cc49c; --s4: #1a7f5a; --flag: #fff4d6; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14171c; --card: #1d2128; --text: #e6e8eb; --muted: #9aa1ab; --border: #2c313a; --passive: #5c6370;
+            --s2: #5c6370; --flag: #3a3220; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.4 system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 22px; margin: 0 0 16px; }
+  h2 { font-size: 15px; margin: 0 0 12px; color: var(--muted); font-weight: 600; }
+  .bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 16px; }
+  .bar label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 4px; }
+  input, select, button { font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
+                          background: var(--card); color: var(--text); }
+  button { background: var(--accent); color: #fff; border: 0; cursor: pointer; }
+  #msg { font-size: 13px; color: var(--muted); }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .kpis { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 16px; }
+  .kpi .v { font-size: 32px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .kpi .l { font-size: 12px; color: var(--muted); }
+  .wide { grid-column: 1 / -1; }
+  canvas { max-height: 280px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr.mismatch { background: var(--flag); }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; color: #fff; white-space: nowrap; }
+  .table-wrap { overflow-x: auto; }
+  .pager { display: flex; gap: 8px; align-items: center; margin-top: 12px; font-size: 13px; color: var(--muted); }
+  .pager button { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+  .pager button:disabled { opacity: .4; cursor: default; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Simple NPS</h1>
+
+  <div class="bar card">
+    <form id="upload" class="bar" style="margin:0">
+      <label>CSV (date,score,review)<input type="file" name="file" accept=".csv" required></label>
+      <button>Upload</button>
+    </form>
+    <label>From<input type="date" id="from"></label>
+    <label>To<input type="date" id="to"></label>
+    <label>Group by<select id="freq"><option value="month">Month</option><option value="week">Week</option></select></label>
+    <span id="msg"></span>
+  </div>
+
+  <div class="kpis">
+    <div class="card kpi"><div class="v" id="k-nps">–</div><div class="l">NPS</div></div>
+    <div class="card kpi"><div class="v" id="k-n">–</div><div class="l">Responses</div></div>
+    <div class="card kpi"><div class="v" id="k-pro" style="color:var(--promoter)">–</div><div class="l">Promoters (9–10)</div></div>
+    <div class="card kpi"><div class="v" id="k-pas">–</div><div class="l">Passives (7–8)</div></div>
+    <div class="card kpi"><div class="v" id="k-det" style="color:var(--detractor)">–</div><div class="l">Detractors (0–6)</div></div>
+  </div>
+
+  <div class="grid">
+    <div class="card wide"><h2>NPS over time</h2><canvas id="c-trend"></canvas></div>
+    <div class="card"><h2>Promoters / passives / detractors</h2><canvas id="c-mix"></canvas></div>
+    <div class="card"><h2>Score distribution</h2><canvas id="c-scores"></canvas></div>
+  </div>
+
+  <div class="card bar" style="margin-top:16px">
+    <h2 style="margin:0">Review sentiment (Jev)</h2>
+    <button id="analyze" disabled>Analyze pending reviews</button>
+    <span id="s-status"></span>
+  </div>
+
+  <div class="grid" style="margin-top:16px">
+    <div class="card"><h2>Sentiment split</h2><canvas id="c-sent"></canvas></div>
+    <div class="card"><h2>Sentiment by NPS category</h2><canvas id="c-cat"></canvas></div>
+    <div class="card wide"><h2>Average sentiment over time (0 very negative … 4 very positive)</h2><canvas id="c-sent-trend"></canvas></div>
+
+    <div class="card wide">
+      <h2>Reviews</h2>
+      <div class="bar">
+        <label>Sentiment<select id="f-sent">
+          <option value="">All</option>
+          <option value="very_negative">Very negative</option><option value="negative">Negative</option>
+          <option value="neutral">Neutral</option><option value="positive">Positive</option>
+          <option value="very_positive">Very positive</option><option value="pending">Not analyzed</option>
+        </select></label>
+        <label style="flex-direction:row;align-items:center"><input type="checkbox" id="f-lowconf"> Low confidence (&lt; 0.75)</label>
+        <label style="flex-direction:row;align-items:center"><input type="checkbox" id="f-mismatch"> Score / sentiment mismatch</label>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Date</th><th>Score</th><th>Sentiment</th><th>Conf.</th><th>Review</th></tr></thead>
+          <tbody id="r-body"></tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <button id="prev">‹ Prev</button><button id="next">Next ›</button><span id="r-info"></span>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const charts = {};
+
+function draw(id, config) {
+  charts[id]?.destroy();
+  charts[id] = new Chart($(id), config);
+}
+
+function query() {
+  const p = new URLSearchParams({ freq: $("freq").value });
+  if ($("from").value) p.set("from", $("from").value);
+  if ($("to").value) p.set("to", $("to").value);
+  return p;
+}
+
+const pct = (x, n) => n ? Math.round(100 * x / n) + "%" : "–";
+
+async function refresh() {
+  const q = query();
+  const [nps, scores] = await Promise.all([
+    fetch("/api/nps?" + q).then(r => r.json()),
+    fetch("/api/scores?" + q).then(r => r.json()),
+  ]);
+
+  $("k-nps").textContent = nps.nps ?? "–";
+  $("k-n").textContent = nps.n;
+  $("k-pro").textContent = pct(nps.promoters, nps.n);
+  $("k-pas").textContent = pct(nps.passives, nps.n);
+  $("k-det").textContent = pct(nps.detractors, nps.n);
+
+  Chart.defaults.color = css("--muted");
+  Chart.defaults.borderColor = css("--border");
+  const labels = nps.series.map(r => r.period);
+
+  draw("c-trend", {
+    type: "line",
+    data: { labels, datasets: [{ label: "NPS", data: nps.series.map(r => r.nps),
+            borderColor: css("--accent"), backgroundColor: css("--accent"), tension: 0.25 }] },
+    options: { plugins: { legend: { display: false },
+                          tooltip: { callbacks: { afterLabel: c => `n = ${nps.series[c.dataIndex].n}` } } },
+               scales: { y: { min: -100, max: 100 } } },
+  });
+
+  draw("c-mix", {
+    type: "bar",
+    data: { labels, datasets: [
+      ["promoters", "Promoters", "--promoter"],
+      ["passives", "Passives", "--passive"],
+      ["detractors", "Detractors", "--detractor"],
+    ].map(([k, label, color]) => ({ label, data: nps.series.map(r => r[k]), backgroundColor: css(color) })) },
+    options: { scales: { x: { stacked: true }, y: { stacked: true } } },
+  });
+
+  draw("c-scores", {
+    type: "bar",
+    data: { labels: [...Array(11).keys()], datasets: [{ label: "Responses", data: scores,
+            backgroundColor: scores.map((_, s) => css(s >= 9 ? "--promoter" : s >= 7 ? "--passive" : "--detractor")) }] },
+    options: { plugins: { legend: { display: false } } },
+  });
+
+  refreshSentiment();
+  offset = 0;
+  refreshReviews();
+}
+
+const LABELS = ["very_negative", "negative", "neutral", "positive", "very_positive"];
+const NAMES = { very_negative: "Very negative", negative: "Negative", neutral: "Neutral",
+                positive: "Positive", very_positive: "Very positive" };
+const sColor = l => css("--s" + LABELS.indexOf(l));
+const PAGE = 25;
+let offset = 0;
+
+async function refreshSentiment() {
+  const s = await fetch("/api/sentiment/summary?" + query()).then(r => r.json());
+
+  draw("c-sent", {
+    type: "doughnut",
+    data: { labels: LABELS.map(l => NAMES[l]),
+            datasets: [{ data: LABELS.map(l => s.breakdown[l] || 0), backgroundColor: LABELS.map(sColor), borderWidth: 0 }] },
+    options: { plugins: { legend: { position: "right" } } },
+  });
+
+  const cats = ["promoter", "passive", "detractor"];
+  const count = (c, l) => s.by_category.find(r => r.category === c && r.sentiment === l)?.n || 0;
+  draw("c-cat", {
+    type: "bar",
+    data: { labels: ["Promoters", "Passives", "Detractors"],
+            datasets: LABELS.map(l => ({ label: NAMES[l], data: cats.map(c => count(c, l)), backgroundColor: sColor(l) })) },
+    options: { indexAxis: "y", scales: { x: { stacked: true }, y: { stacked: true } } },
+  });
+
+  draw("c-sent-trend", {
+    type: "line",
+    data: { labels: s.series.map(r => r.period),
+            datasets: [{ label: "Avg sentiment", data: s.series.map(r => r.avg_score),
+                         borderColor: css("--accent"), backgroundColor: css("--accent"), tension: 0.25 }] },
+    options: { plugins: { legend: { display: false },
+                          tooltip: { callbacks: { afterLabel: c => `n = ${s.series[c.dataIndex].n}` } } },
+               scales: { y: { min: 0, max: 4 } } },
+  });
+}
+
+async function refreshReviews() {
+  const q = query();
+  q.delete("freq");
+  q.set("limit", PAGE);
+  q.set("offset", offset);
+  if ($("f-sent").value) q.set("sentiment", $("f-sent").value);
+  if ($("f-lowconf").checked) q.set("max_conf", 0.75);
+  if ($("f-mismatch").checked) q.set("mismatch", true);
+  const r = await fetch("/api/reviews?" + q).then(r => r.json());
+
+  // Build cells with textContent: review text comes from uploaded CSVs, never inject it as HTML.
+  $("r-body").replaceChildren(...r.rows.map(row => {
+    const tr = document.createElement("tr");
+    if (row.mismatch) { tr.className = "mismatch"; tr.title = "Sentiment contradicts the NPS score"; }
+    const cell = (text, cls) => { const td = tr.insertCell(); td.textContent = text; if (cls) td.className = cls; return td; };
+    cell(row.date, "num");
+    cell(row.score, "num");
+    const td = cell(row.sentiment ? "" : "–");
+    if (row.sentiment) {
+      const pill = document.createElement("span");
+      pill.className = "pill";
+      pill.style.background = sColor(row.sentiment);
+      if (row.sentiment === "neutral") pill.style.color = css("--text");
+      pill.textContent = NAMES[row.sentiment];
+      td.append(pill);
+    }
+    cell(row.sentiment_confidence == null ? "–" : row.sentiment_confidence.toFixed(2), "num");
+    cell(row.review);
+    return tr;
+  }));
+  $("r-info").textContent = r.total ? `${offset + 1}–${offset + r.rows.length} of ${r.total}` : "No reviews";
+  $("prev").disabled = offset === 0;
+  $("next").disabled = offset + PAGE >= r.total;
+}
+
+["f-sent", "f-lowconf", "f-mismatch"].forEach(id => $(id).addEventListener("change", () => { offset = 0; refreshReviews(); }));
+$("prev").addEventListener("click", () => { offset = Math.max(0, offset - PAGE); refreshReviews(); });
+$("next").addEventListener("click", () => { offset += PAGE; refreshReviews(); });
+
+$("upload").addEventListener("submit", async e => {
+  e.preventDefault();
+  const r = await fetch("/api/upload", { method: "POST", body: new FormData(e.target) });
+  const body = await r.json();
+  $("msg").textContent = r.ok
+    ? `Inserted ${body.inserted}, rejected ${body.rejected}` + (body.errors.length ? ` (${body.errors[0]}…)` : "")
+    : `Upload failed: ${body.detail}`;
+  e.target.reset();
+  refresh();
+  sentimentStatus();
+});
+
+let wasRunning = false;
+async function sentimentStatus() {
+  const s = await fetch("/api/sentiment/status").then(r => r.json());
+  if (wasRunning && !s.running) { refreshSentiment(); refreshReviews(); }
+  wasRunning = s.running;
+  $("analyze").textContent = `Analyze ${s.pending} pending review${s.pending === 1 ? "" : "s"}`;
+  $("analyze").disabled = s.running || !s.pending;
+  $("s-status").textContent = `${s.analyzed} analyzed` + (s.running ? " · running…" : "")
+    + (s.failed ? ` · ${s.failed} failed` : "") + (s.last_error ? ` · last error: ${s.last_error}` : "");
+  if (s.running) setTimeout(sentimentStatus, 1500);
+}
+
+$("analyze").addEventListener("click", async () => {
+  $("analyze").disabled = true;
+  const r = await fetch("/api/sentiment/run", { method: "POST" });
+  if (!r.ok) $("s-status").textContent = (await r.json()).detail;
+  else sentimentStatus();
+});
+
+["from", "to", "freq"].forEach(id => $(id).addEventListener("change", refresh));
+refresh();
+sentimentStatus();
+</script>
+</body>
+</html>
